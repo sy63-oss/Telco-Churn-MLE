@@ -13,3 +13,5 @@ matplotlib
 seaborn
 optuna
 lightgbm
+xgboost
+gradio

@@ -6,11 +6,11 @@ Runs sequentially: load → validate → preprocess → feature engineering
 import os
 import sys
 import time
+import shutil
 import argparse
 import pandas as pd
 import mlflow
-import mlflow.sklearn
-from posthog import project_root
+import mlflow.xgboost
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     classification_report, precision_score, recall_score,
@@ -36,6 +36,9 @@ def main(args):
     
     # === MLflow Setup - ESSENTIAL for experiment tracking ===
     # Configure MLflow to use local file-based tracking (not a tracking server)
+    # The filesystem backend is in "maintenance mode" on recent MLflow versions and
+    # raises unless explicitly allowed.
+    os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     mlruns_path = args.mlflow_uri or f"file://{project_root}/mlruns"  # Local file-based tracking
     mlflow.set_tracking_uri(mlruns_path)
@@ -201,12 +204,40 @@ def main(args):
 
         # === STAGE 7: Model Serialization and Logging ===
         print("💾 Saving model to MLflow...")
-        # ESSENTIAL: Log model in MLflow's standard format for serving
-        mlflow.sklearn.log_model(
-            model, 
+        # ESSENTIAL: Log model in MLflow's native XGBoost format for serving
+        # NOTE: MLflow 3.x logs models as a separate top-level "Logged Model" entity
+        # (mlruns/<exp_id>/models/m-<model_id>/), not nested under the run's own
+        # artifacts/ folder like older MLflow versions - model_info.model_uri is the
+        # only reliable way to locate it afterwards.
+        model_info = mlflow.xgboost.log_model(
+            model,
             artifact_path="model"  # This creates a 'model/' folder in MLflow run artifacts
         )
         print("✅ Model saved to MLflow for serving pipeline")
+
+        # === STAGE 8: Export Run Artifacts for Docker Serving ===
+        # The dockerfile bakes a specific MLflow run's artifacts into the image (it can't
+        # depend on mlruns/, which is gitignored). Copy this run's artifacts into
+        # src/serving/model/<run_id>/artifacts/ so they can be committed to git.
+        run_id = mlflow.active_run().info.run_id
+        run_artifact_dir = mlflow.get_artifact_uri().replace("file://", "")
+        export_dir = os.path.join(project_root, "src", "serving", "model", run_id, "artifacts")
+
+        if os.path.exists(export_dir):
+            shutil.rmtree(export_dir)
+        # Run-level artifacts (feature_columns.txt, preprocessing.pkl)
+        shutil.copytree(run_artifact_dir, export_dir)
+        # Model artifacts live under the separate Logged Model entity - fetch by model_uri
+        mlflow.artifacts.download_artifacts(
+            artifact_uri=model_info.model_uri, dst_path=os.path.join(export_dir, "model")
+        )
+
+        print(f"\n📦 Exported run artifacts to: {export_dir}")
+        print(f"🔑 Run ID: {run_id}")
+        print("   Update dockerfile's model COPY lines to reference this run_id:")
+        print(f"   COPY src/serving/model/{run_id}/artifacts/model /app/model")
+        print(f"   COPY src/serving/model/{run_id}/artifacts/feature_columns.txt /app/model/feature_columns.txt")
+        print(f"   COPY src/serving/model/{run_id}/artifacts/preprocessing.pkl /app/model/preprocessing.pkl")
 
         # === Final Performance Summary ===
         print(f"\n⏱️  Performance Summary:")

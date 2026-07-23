@@ -1,0 +1,22 @@
+artifact_path: file:///Users/abiboulayesy/Telco_Churn_MLE/mlruns/177855925458565058/models/m-052d18e05f154d4e8c7be934f6f6223c/artifacts
+flavors:
+  python_function:
+    data: model.ubj
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.xgboost
+    python_version: 3.11.6
+  xgboost:
+    code: null
+    data: model.ubj
+    model_class: xgboost.sklearn.XGBClassifier
+    model_format: ubj
+    xgb_version: 3.2.0
+mlflow_version: 3.14.0
+model_id: m-052d18e05f154d4e8c7be934f6f6223c
+model_size_bytes: 1375399
+model_uuid: m-052d18e05f154d4e8c7be934f6f6223c
+prompts: null
+run_id: 9de0236582334c2e92cd2db1bc12cd51
+utc_time_created: '2026-07-23 21:13:32.676158'
